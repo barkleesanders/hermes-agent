@@ -38,7 +38,7 @@ _NUMERIC_TOPIC_RE = _TELEGRAM_TOPIC_TARGET_RE
 # below and falls through to channel-name resolution, which has no way to
 # resolve a raw phone number. Keeping the '+' preserves the E.164 form that
 # downstream adapters (signal, etc.) expect.
-_PHONE_PLATFORMS = frozenset({"signal", "sms", "whatsapp"})
+_PHONE_PLATFORMS = frozenset({"signal", "sms", "whatsapp", "bluebubbles"})
 _E164_TARGET_RE = re.compile(r"^\s*\+(\d{7,15})\s*$")
 # Email addresses — a valid email like "user@domain.com" should be treated as
 # an explicit target for the email platform, not fall through to channel-name
@@ -78,6 +78,44 @@ def _sanitize_error_text(text) -> str:
 def _error(message: str) -> dict:
     """Build a standardized error payload with redacted content."""
     return {"error": _sanitize_error_text(message)}
+
+
+def _env_list(name: str) -> list[str]:
+    raw = os.getenv(name, "")
+    return [part.strip() for part in raw.replace("\n", ",").split(",") if part.strip()]
+
+
+def _phone_digits(value: object) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
+
+
+def _bluebubbles_authorized_target_values() -> set[str]:
+    allowed = set(_env_list("BLUEBUBBLES_ALLOWED_USERS"))
+    home = os.getenv("BLUEBUBBLES_HOME_CHANNEL", "").strip()
+    if home:
+        allowed.add(home)
+    return allowed
+
+
+def _bluebubbles_target_is_authorized(chat_id: object) -> bool:
+    allowed = _bluebubbles_authorized_target_values()
+    if not allowed:
+        return True
+
+    target = str(chat_id or "").strip()
+    if target in allowed:
+        return True
+
+    target_digits = _phone_digits(target)
+    if not target_digits:
+        return False
+
+    allowed_digits = {_phone_digits(value) for value in allowed}
+    allowed_digits.discard("")
+    return target_digits in allowed_digits
 
 
 def _telegram_retry_delay(exc: Exception, attempt: int) -> float | None:
@@ -600,6 +638,12 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
 
     from gateway.platforms.base import BasePlatformAdapter, utf16_len
     from gateway.platforms.slack import SlackAdapter
+
+    if platform == Platform.BLUEBUBBLES and not _bluebubbles_target_is_authorized(chat_id):
+        return _error(
+            "BlueBubbles send target is not authorized. Add it to "
+            "BLUEBUBBLES_ALLOWED_USERS or BLUEBUBBLES_HOME_CHANNEL before sending."
+        )
 
     # Telegram adapter import is optional (requires python-telegram-bot)
     try:

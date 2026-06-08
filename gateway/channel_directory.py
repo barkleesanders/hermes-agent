@@ -8,6 +8,8 @@ action="list" and for resolving human-friendly channel names to numeric IDs.
 
 import json
 import logging
+import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +19,86 @@ from utils import atomic_json_write
 logger = logging.getLogger(__name__)
 
 DIRECTORY_PATH = get_hermes_home() / "channel_directory.json"
+
+
+def _split_env_list(name: str) -> List[str]:
+    raw = os.getenv(name, "")
+    return [part.strip() for part in raw.replace("\n", ",").split(",") if part.strip()]
+
+
+def _phone_digits(value: object) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
+
+
+def _bluebubbles_allowed_values() -> List[str]:
+    values = _split_env_list("BLUEBUBBLES_ALLOWED_USERS")
+    home = os.getenv("BLUEBUBBLES_HOME_CHANNEL", "").strip()
+    if home and home not in values:
+        values.append(home)
+    return values
+
+
+def _bluebubbles_value_allowed(value: object, allowed: List[str], allowed_digits: set[str]) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if text in allowed:
+        return True
+    digits = _phone_digits(text)
+    return bool(digits and digits in allowed_digits)
+
+
+def _bluebubbles_channel_allowed(channel: Dict[str, Any], allowed: List[str], allowed_digits: set[str]) -> bool:
+    for key in ("id", "chat_id", "name"):
+        if _bluebubbles_value_allowed(channel.get(key), allowed, allowed_digits):
+            return True
+    return False
+
+
+def _filter_bluebubbles_channels(channels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    allowed = _bluebubbles_allowed_values()
+    if not allowed:
+        return channels
+
+    allowed_digits = {_phone_digits(value) for value in allowed}
+    allowed_digits.discard("")
+    filtered: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(channel: Dict[str, Any]) -> None:
+        key = str(channel.get("id") or channel.get("chat_id") or channel.get("name") or "")
+        if not key or key in seen:
+            return
+        seen.add(key)
+        filtered.append(channel)
+
+    home = os.getenv("BLUEBUBBLES_HOME_CHANNEL", "").strip()
+    if home:
+        add({
+            "id": home,
+            "name": os.getenv("BLUEBUBBLES_HOME_CHANNEL_NAME", "Home").strip() or home,
+            "type": "dm",
+            "thread_id": None,
+        })
+
+    for channel in channels:
+        if _bluebubbles_channel_allowed(channel, allowed, allowed_digits):
+            add(channel)
+
+    return filtered
+
+
+def _filter_restricted_channels(directory: Dict[str, Any]) -> Dict[str, Any]:
+    platforms = directory.get("platforms")
+    if not isinstance(platforms, dict):
+        return directory
+    channels = platforms.get("bluebubbles")
+    if isinstance(channels, list):
+        platforms["bluebubbles"] = _filter_bluebubbles_channels(channels)
+    return directory
 
 
 def _normalize_channel_query(value: str) -> str:
@@ -100,6 +182,7 @@ async def build_channel_directory(adapters: Dict[Any, Any]) -> Dict[str, Any]:
         "updated_at": datetime.now().isoformat(),
         "platforms": platforms,
     }
+    directory = _filter_restricted_channels(directory)
 
     try:
         atomic_json_write(DIRECTORY_PATH, directory)
@@ -250,7 +333,7 @@ def load_directory() -> Dict[str, Any]:
         return {"updated_at": None, "platforms": {}}
     try:
         with open(DIRECTORY_PATH, encoding="utf-8") as f:
-            return json.load(f)
+            return _filter_restricted_channels(json.load(f))
     except Exception:
         return {"updated_at": None, "platforms": {}}
 

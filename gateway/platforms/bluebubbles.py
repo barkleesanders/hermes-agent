@@ -53,6 +53,42 @@ DEFAULT_MENTION_PATTERNS = [
     r"(?<![\w@])@?hermes\b[,:\-]?",
 ]
 
+
+def _split_env_targets(name: str) -> List[str]:
+    raw = os.getenv(name, "")
+    return [part.strip() for part in raw.replace("\n", ",").split(",") if part.strip()]
+
+
+def _phone_digits(value: object) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
+
+
+def _authorized_send_targets() -> List[str]:
+    targets = _split_env_targets("BLUEBUBBLES_ALLOWED_USERS")
+    home = os.getenv("BLUEBUBBLES_HOME_CHANNEL", "").strip()
+    if home and home not in targets:
+        targets.append(home)
+    return targets
+
+
+def _send_target_authorized(chat_id: object) -> bool:
+    targets = _authorized_send_targets()
+    if not targets:
+        return True
+    text = str(chat_id or "").strip()
+    if text in targets:
+        return True
+    target_digits = _phone_digits(text)
+    if not target_digits:
+        return False
+    allowed_digits = {_phone_digits(value) for value in targets}
+    allowed_digits.discard("")
+    return target_digits in allowed_digits
+
+
 # Tapback reaction codes (BlueBubbles associatedMessageType values)
 _TAPBACK_ADDED = {
     2000: "love", 2001: "like", 2002: "dislike",
@@ -506,6 +542,14 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         text = self.format_message(content)
         if not text:
             return SendResult(success=False, error="BlueBubbles send requires text")
+        if not _send_target_authorized(chat_id):
+            return SendResult(
+                success=False,
+                error=(
+                    "BlueBubbles send target is not authorized. Add it to "
+                    "BLUEBUBBLES_ALLOWED_USERS or BLUEBUBBLES_HOME_CHANNEL before sending."
+                ),
+            )
         # Split on paragraph breaks first (double newlines) so each thought
         # becomes its own iMessage bubble, then truncate any that are still
         # too long.
