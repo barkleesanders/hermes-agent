@@ -42,6 +42,7 @@ class CLIAgentSetupMixin:
                 requested=self.requested_provider,
                 explicit_api_key=self._explicit_api_key,
                 explicit_base_url=self._explicit_base_url,
+                target_model=self.model,
             )
         except Exception as exc:
             _primary_exc = exc
@@ -103,9 +104,49 @@ class CLIAgentSetupMixin:
                     base_url, _source,
                 )
             else:
-                print("\n⚠️  Provider resolver returned an empty API key. "
-                      "Set OPENROUTER_API_KEY or run: hermes setup")
-                return False
+                # Treat an empty-key primary the same as an auth failure when a
+                # fallback chain is configured. Some resolver paths return a
+                # runtime with an empty key (rather than raising AuthError), and
+                # previously stopped before reaching stable fallbacks such as
+                # claude-code-cli.
+                _fb_chain = self._fallback_model if isinstance(self._fallback_model, list) else []
+                _fallback_switched = False
+                for _fb in _fb_chain:
+                    _fb_provider = (_fb.get("provider") or "").strip().lower()
+                    _fb_model = (_fb.get("model") or "").strip()
+                    if not _fb_provider or not _fb_model:
+                        continue
+                    if _fb_provider == resolved_provider and _fb_model == self.model:
+                        continue
+                    try:
+                        runtime = resolve_runtime_provider(
+                            requested=_fb_provider,
+                            target_model=_fb_model,
+                        )
+                    except Exception:
+                        continue
+                    logger.warning(
+                        "Primary provider returned an empty API key. Falling through to fallback: %s/%s",
+                        _fb_provider,
+                        _fb_model,
+                    )
+                    _cprint(f"⚠️  Primary auth missing — switching to fallback: {_fb_provider} / {_fb_model}")
+                    self.requested_provider = _fb_provider
+                    self.model = _fb_model
+                    api_key = runtime.get("api_key")
+                    base_url = runtime.get("base_url")
+                    resolved_provider = runtime.get("provider", _fb_provider)
+                    resolved_api_mode = runtime.get("api_mode", self.api_mode)
+                    resolved_acp_command = runtime.get("command")
+                    resolved_acp_args = list(runtime.get("args") or [])
+                    resolved_credential_pool = runtime.get("credential_pool")
+                    _is_callable_provider = callable(api_key) and not isinstance(api_key, str)
+                    _fallback_switched = True
+                    break
+                if not _fallback_switched:
+                    print("\n⚠️  Provider resolver returned an empty API key. "
+                          "Set OPENROUTER_API_KEY or run: hermes setup")
+                    return False
         if not isinstance(base_url, str) or not base_url:
             print("\n⚠️  Provider resolver returned an empty base URL. "
                   "Check your provider config or run: hermes setup")

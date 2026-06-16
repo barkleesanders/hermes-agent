@@ -311,7 +311,7 @@ def init_agent(
     agent.provider = provider_name or ""
     agent.acp_command = acp_command or command
     agent.acp_args = list(acp_args or args or [])
-    if api_mode in {"chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse", "codex_app_server"}:
+    if api_mode in {"chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse", "codex_app_server", "claude_code_cli"}:
         agent.api_mode = api_mode
     elif agent.provider == "openai-codex":
         agent.api_mode = "codex_responses"
@@ -377,7 +377,7 @@ def init_agent(
     if (
         api_mode is None
         and agent.api_mode == "chat_completions"
-        and agent.provider != "copilot-acp"
+        and agent.provider not in {"copilot-acp", "claude-code-cli"}
         and not str(agent.base_url or "").lower().startswith("acp://copilot")
         and not str(agent.base_url or "").lower().startswith("acp+tcp://")
         and not agent._is_azure_openai_url()
@@ -721,6 +721,16 @@ def init_agent(
         if not agent.quiet_mode:
             _gr_label = " + Guardrails" if agent._bedrock_guardrail_config else ""
             print(f"🤖 AI Agent initialized with model: {agent.model} (AWS Bedrock, {agent._bedrock_region}{_gr_label})")
+    elif agent.api_mode == "claude_code_cli":
+        from agent.claude_code_cli_adapter import ClaudeCodeCLIClient
+
+        agent.api_key = api_key or "claude-code-cli"
+        agent.base_url = base_url or "claude-code-cli://claude"
+        agent.client = ClaudeCodeCLIClient()
+        agent._client_kwargs = {}
+        agent._raw_client_class = agent.client.__class__
+        if not agent.quiet_mode:
+            print(f"🤖 AI Agent initialized with model: {agent.model} (Claude Code CLI via claude -p)")
     else:
         if api_key and base_url:
             # Explicit credentials from CLI/gateway — construct directly.

@@ -737,3 +737,7 @@ class ChatCompletionsTransport(ProviderTransport):
 from agent.transports import register_transport  # noqa: E402
 
 register_transport("chat_completions", ChatCompletionsTransport)
+# Claude Code CLI returns an OpenAI Chat Completions-shaped response from
+# agent.claude_code_cli_adapter, so reuse the normal Chat Completions
+# validator/normalizer while keeping a distinct api_mode for client dispatch.
+register_transport("claude_code_cli", ChatCompletionsTransport)

@@ -1557,6 +1557,19 @@ def resolve_runtime_provider(
             logger.info("Google Gemini OAuth credentials failed; "
                         "falling through to next provider.")
 
+    if provider == "claude-code-cli":
+        creds = resolve_external_process_provider_credentials(provider)
+        return {
+            "provider": "claude-code-cli",
+            "api_mode": "claude_code_cli",
+            "base_url": creds.get("base_url", "").rstrip("/"),
+            "api_key": creds.get("api_key", ""),
+            "command": creds.get("command", ""),
+            "args": list(creds.get("args") or []),
+            "source": creds.get("source", "process"),
+            "requested_provider": requested_provider,
+        }
+
     if provider == "copilot-acp":
         creds = resolve_external_process_provider_credentials(provider)
         return {

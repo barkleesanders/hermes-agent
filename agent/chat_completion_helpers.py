@@ -204,6 +204,9 @@ def interruptible_api_call(agent, api_kwargs: dict):
                     client=request_client,
                     on_first_delta=getattr(agent, "_codex_on_first_delta", None),
                 )
+            elif agent.api_mode == "claude_code_cli":
+                from agent.claude_code_cli_adapter import create_claude_code_cli_completion
+                result["response"] = create_claude_code_cli_completion(**api_kwargs)
             elif agent.api_mode == "anthropic_messages":
                 result["response"] = agent._anthropic_messages_create(api_kwargs)
             elif agent.api_mode == "bedrock_converse":
@@ -555,6 +558,18 @@ def interruptible_api_call(agent, api_kwargs: dict):
 def build_api_kwargs(agent, api_messages: list) -> dict:
     """Build the keyword arguments dict for the active API mode."""
     tools_for_api = agent.tools
+
+    if agent.api_mode == "claude_code_cli":
+        # Claude Code CLI fallback is intentionally text-only. Hermes owns
+        # tool execution; the subprocess is used only as a stable model route
+        # through Claude Code's first-party ``claude -p`` surface.
+        _msgs_for_cli = agent._prepare_messages_for_non_vision_model(api_messages)
+        return {
+            "model": agent.model,
+            "messages": _msgs_for_cli,
+            "timeout": agent._resolved_api_call_timeout(),
+            "max_tokens": agent.max_tokens,
+        }
 
     if agent.api_mode == "anthropic_messages":
         _transport = agent._get_transport()
@@ -1143,7 +1158,9 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
         fb_api_mode = "chat_completions"
         fb_base_url = str(fb_client.base_url)
         _fb_is_azure = agent._is_azure_openai_url(fb_base_url)
-        if fb_provider == "openai-codex":
+        if fb_provider == "claude-code-cli":
+            fb_api_mode = "claude_code_cli"
+        elif fb_provider == "openai-codex":
             fb_api_mode = "codex_responses"
         elif fb_provider == "anthropic" or fb_base_url.rstrip("/").lower().endswith("/anthropic"):
             fb_api_mode = "anthropic_messages"
@@ -1582,6 +1599,11 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
     """
     if agent._interrupt_requested:
         raise InterruptedError("Agent interrupted before streaming API call")
+
+    if agent.api_mode == "claude_code_cli":
+        # ``claude -p --output-format json`` returns at end-of-turn; use the
+        # non-streaming path and let existing callers consume the final message.
+        return agent._interruptible_api_call(api_kwargs)
 
     if agent.api_mode == "codex_responses":
         # Codex streams internally via _run_codex_stream. The main dispatch

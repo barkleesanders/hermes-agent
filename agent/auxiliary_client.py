@@ -149,6 +149,8 @@ _PROVIDER_ALIASES = {
     "minimax_cn": "minimax-cn",
     "claude": "anthropic",
     "claude-code": "anthropic",
+    "claude-cli": "claude-code-cli",
+    "claude-code-cli": "claude-code-cli",
     "github": "copilot",
     "github-copilot": "copilot",
     "github-model": "copilot",
@@ -3775,6 +3777,30 @@ def resolve_provider_client(
         final_model = _normalize_resolved_model(model or default_model, provider)
         return (_to_async_client(client, final_model, is_vision=is_vision) if async_mode
                 else (client, final_model))
+
+    if provider == "claude-code-cli":
+        if async_mode:
+            logger.warning(
+                "resolve_provider_client: claude-code-cli does not support async auxiliary calls"
+            )
+            return None, None
+        try:
+            from hermes_cli.auth import resolve_external_process_provider_credentials
+            from agent.claude_code_cli_adapter import ClaudeCodeCLIClient
+            creds = resolve_external_process_provider_credentials(provider)
+        except Exception as exc:
+            logger.warning("resolve_provider_client: claude-code-cli requested but unavailable: %s", exc)
+            return None, None
+        final_model = _normalize_resolved_model(
+            model or (main_runtime.get("model") if main_runtime else None) or _read_main_model() or "sonnet",
+            provider,
+        )
+        client = ClaudeCodeCLIClient(
+            command=str(creds.get("command", "") or "") or None,
+            args=list(creds.get("args") or []),
+        )
+        logger.debug("resolve_provider_client: %s (%s)", provider, final_model)
+        return client, final_model
 
     # ── API-key providers from PROVIDER_REGISTRY ─────────────────────
     try:

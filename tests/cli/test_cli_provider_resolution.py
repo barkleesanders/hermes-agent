@@ -200,6 +200,43 @@ def test_runtime_resolution_rebuilds_agent_on_routing_change(monkeypatch):
     assert shell.api_mode == "codex_responses"
 
 
+def test_runtime_resolution_empty_primary_key_uses_fallback(monkeypatch):
+    cli = _import_cli()
+    calls = []
+
+    def _runtime_resolve(**kwargs):
+        calls.append(kwargs)
+        if kwargs.get("requested") == "claude-code-cli":
+            return {
+                "provider": "claude-code-cli",
+                "api_mode": "claude_code_cli",
+                "base_url": "claude-code-cli://claude",
+                "api_key": "claude-code-cli",
+                "source": "claude-code-cli",
+            }
+        return {
+            "provider": "openrouter",
+            "api_mode": "chat_completions",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "",
+            "source": "env/config",
+        }
+
+    monkeypatch.setattr("hermes_cli.runtime_provider.resolve_runtime_provider", _runtime_resolve)
+    monkeypatch.setattr("hermes_cli.runtime_provider.format_runtime_provider_error", lambda exc: str(exc))
+
+    shell = cli.HermesCLI(model="z-ai/glm-4.7", provider="openrouter", compact=True, max_turns=1)
+    shell._fallback_model = [{"provider": "claude-code-cli", "model": "default"}]
+
+    assert shell._ensure_runtime_credentials() is True
+    assert shell.provider == "claude-code-cli"
+    assert shell.api_mode == "claude_code_cli"
+    assert shell.model == "default"
+    assert calls[0]["target_model"] == "z-ai/glm-4.7"
+    assert calls[1]["requested"] == "claude-code-cli"
+    assert calls[1]["target_model"] == "default"
+
+
 def test_cli_turn_routing_uses_primary_when_disabled(monkeypatch):
     cli = _import_cli()
     shell = cli.HermesCLI(model="gpt-5", compact=True, max_turns=1)
