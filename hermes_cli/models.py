@@ -257,10 +257,14 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "gemini-3.5-flash",
     ],
     "claude-code-cli": [
+        # Primary source: `claude --help` documents --model aliases such as
+        # fable, opus, and sonnet. Keep `default` first so choosing the provider
+        # without a model preserves Claude Code's bare/default route.
+        "default",
         "sonnet",
         "opus",
         "haiku",
-        "default",
+        "fable",
     ],
     "zai": [
         "glm-5.2",

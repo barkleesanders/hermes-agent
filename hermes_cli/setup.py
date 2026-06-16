@@ -75,10 +75,14 @@ _DEFAULT_PROVIDER_MODELS = {
         "copilot-acp",
     ],
     "claude-code-cli": [
+        # Primary source: `claude --help` documents --model aliases such as
+        # fable, opus, and sonnet. Keep `default` first so choosing the provider
+        # without a model preserves Claude Code's bare/default route.
+        "default",
         "sonnet",
         "opus",
         "haiku",
-        "default",
+        "fable",
     ],
     "copilot": [
         "gpt-5.4",

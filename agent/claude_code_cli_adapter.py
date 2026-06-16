@@ -26,6 +26,13 @@ from typing import Any, Iterable
 
 _DEFAULT_TIMEOUT_SECONDS = 300.0
 _DEFAULT_MAX_BUDGET_USD = "0.50"
+_DEFAULT_MODEL_SENTINELS = {"", "default", "auto", "claude-code-default", "claude-code-cli"}
+_CLAUDE_CODE_MODEL_ALIASES = {
+    "claude-code-sonnet": "sonnet",
+    "claude-code-opus": "opus",
+    "claude-code-haiku": "haiku",
+    "claude-code-fable": "fable",
+}
 
 
 def _truthy(value: str | None) -> bool:
@@ -56,6 +63,49 @@ def resolve_claude_code_command(command: str | None = None) -> str:
             "Set HERMES_CLAUDE_CODE_COMMAND to a valid claude binary."
         )
     return candidate
+
+
+def normalize_claude_code_model(model: Any) -> str:
+    """Normalize Hermes model IDs into Claude Code's ``--model`` selector.
+
+    Primary source: ``claude --help`` documents ``--model <model>`` accepting
+    aliases such as ``fable``, ``opus``, and ``sonnet`` plus full Claude model
+    names such as ``claude-fable-5``.  Hermes users often pass aggregator-style
+    IDs (``anthropic/claude-sonnet-4.6``); strip that prefix and prefer the
+    stable Claude Code family aliases when the model clearly names a family.
+    Empty/default values return ``""`` so the adapter intentionally omits
+    ``--model`` and lets Claude Code choose its default route.
+    """
+    raw = str(model or "").strip()
+    if not raw:
+        return ""
+    lowered = raw.lower().strip()
+    if lowered in _DEFAULT_MODEL_SENTINELS:
+        return ""
+    # OpenRouter/models.dev style IDs are often provider/model. Claude Code
+    # accepts Claude model names/aliases, not the aggregator provider prefix.
+    if "/" in lowered:
+        provider, remainder = lowered.split("/", 1)
+        if provider in {"anthropic", "claude", "claude-code-cli"}:
+            lowered = remainder.strip()
+        else:
+            # Unknown provider prefix: pass through unchanged so Claude Code can
+            # surface the real unsupported-model error instead of us guessing.
+            return raw
+    lowered = lowered.replace("_", "-")
+    if lowered in _DEFAULT_MODEL_SENTINELS:
+        return ""
+    if lowered in {"sonnet", "opus", "haiku", "fable"}:
+        return lowered
+    alias = _CLAUDE_CODE_MODEL_ALIASES.get(lowered)
+    if alias:
+        return alias
+    # Map full/versioned Claude model IDs to the documented family aliases.
+    if lowered.startswith("claude-"):
+        family = lowered.split("-", 2)[1] if "-" in lowered else ""
+        if family in {"sonnet", "opus", "haiku", "fable"}:
+            return family
+    return lowered
 
 
 def _content_to_text(content: Any) -> str:
@@ -145,9 +195,7 @@ def _redact_cli_error(text: str) -> str:
 
 def create_claude_code_cli_completion(**kwargs: Any) -> SimpleNamespace:
     """Run ``claude -p`` and return an OpenAI Chat Completions-shaped object."""
-    model = str(kwargs.get("model") or "").strip()
-    if model.lower() in {"", "default", "auto", "claude-code-default"}:
-        model = ""
+    model = normalize_claude_code_model(kwargs.get("model"))
     messages = kwargs.get("messages") or []
     system_prompt, prompt = split_system_and_prompt(messages)
     if not prompt:
