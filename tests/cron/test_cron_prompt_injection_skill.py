@@ -239,7 +239,33 @@ class TestBuildJobPromptScansSkillContent:
         # Should not raise — missing skills are skipped with a notice.
         prompt = scheduler._build_job_prompt(job)
         assert prompt is not None
-        assert "could not be found" in prompt
+        assert "could not be loaded" in prompt
+        assert "does-not-exist" in prompt
+        assert "not found" in prompt
+
+    def test_ambiguous_skill_notice_preserves_actual_reason(self, cron_env):
+        hermes_home, scheduler = cron_env
+        for category in ("claude-github", "codex-github"):
+            skill_dir = hermes_home / "skills" / category / "carmack"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: carmack\ndescription: test\n---\n\nBody.\n",
+                encoding="utf-8",
+            )
+
+        prompt = scheduler._build_job_prompt(
+            {
+                "id": "job-ambiguous",
+                "name": "ambiguous",
+                "prompt": "run task",
+                "skills": ["carmack"],
+            }
+        )
+
+        assert prompt is not None
+        assert "could not be loaded" in prompt
+        assert "Ambiguous skill name 'carmack': 2 skills match" in prompt
+        assert "could not be found" not in prompt
 
 
     def test_bundle_name_shadows_skill_name_for_cron_jobs(self, cron_env):

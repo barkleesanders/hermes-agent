@@ -4490,7 +4490,7 @@ def _build_job_prompt(
     from agent.skill_utils import normalize_skill_lookup_name
 
     parts = []
-    skipped: list[str] = []
+    skipped: list[tuple[str, str]] = []
     for skill_name in skill_names:
         # Cron jobs historically accepted only skill names here, but the CLI/gateway
         # slash-command path lets bundles shadow skills with the same slug. Mirror
@@ -4514,19 +4514,19 @@ def _build_job_prompt(
                 job.get("name", job.get("id")),
                 skill_name,
             )
-            skipped.append(skill_name)
+            skipped.append((skill_name, "bundle could not load any member skills"))
             continue
 
         try:
             loaded = json.loads(skill_view(normalize_skill_lookup_name(skill_name)))
         except (json.JSONDecodeError, TypeError):
             logger.warning("Cron job '%s': skill '%s' returned invalid JSON, skipping", job.get("name", job.get("id")), skill_name)
-            skipped.append(skill_name)
+            skipped.append((skill_name, "skill loader returned invalid JSON"))
             continue
         if not loaded.get("success"):
             error = loaded.get("error") or f"Failed to load skill '{skill_name}'"
-            logger.warning("Cron job '%s': skill not found, skipping — %s", job.get("name", job.get("id")), error)
-            skipped.append(skill_name)
+            logger.warning("Cron job '%s': skill could not load, skipping — %s", job.get("name", job.get("id")), error)
+            skipped.append((skill_name, str(error)))
             continue
 
         # Bump usage so the curator sees this skill as actively used.
@@ -4547,11 +4547,13 @@ def _build_job_prompt(
         )
 
     if skipped:
+        skipped_names = ", ".join(name for name, _reason in skipped)
+        skipped_details = "; ".join(f"{name}: {reason}" for name, reason in skipped)
         notice = (
-            f"[IMPORTANT: The following skill(s) were listed for this job but could not be found "
-            f"and were skipped: {', '.join(skipped)}. "
-            f"Start your response with a brief notice so the user is aware, e.g.: "
-            f"'⚠️ Skill(s) not found and skipped: {', '.join(skipped)}']"
+            f"[IMPORTANT: The following skill(s) were listed for this job but could not be loaded "
+            f"and were skipped: {skipped_names}. Reasons: {skipped_details}. "
+            f"Start your response with a brief notice that includes the reason so the user can fix it, e.g.: "
+            f"'⚠️ Skill(s) could not be loaded and were skipped: {skipped_details}']"
         )
         parts.insert(0, notice)
 
