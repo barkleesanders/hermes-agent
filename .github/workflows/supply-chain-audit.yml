@@ -8,7 +8,6 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  pull-requests: write
   contents: read
 
 # Narrow, high-signal scanner. Only fires on critical indicators of supply
@@ -35,6 +34,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Check for relevant file changes
         id: filter
         run: |
@@ -67,6 +67,9 @@ jobs:
 
   scan:
     name: Scan PR for critical supply chain risks
+    permissions:
+      contents: read
+      pull-requests: write
     needs: changes
     if: needs.changes.outputs.scan == 'true'
     runs-on: ubuntu-latest
@@ -75,6 +78,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Scan diff for critical patterns
         id: scan
@@ -202,6 +206,9 @@ jobs:
 
   dep-bounds:
     name: Check PyPI dependency upper bounds
+    permissions:
+      contents: read
+      pull-requests: write
     needs: changes
     if: needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
@@ -210,6 +217,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check for unbounded PyPI deps
         id: bounds
@@ -281,6 +289,9 @@ jobs:
 
   mcp-catalog-review:
     name: MCP catalog security review
+    permissions:
+      contents: read
+      pull-requests: write
     needs: changes
     if: needs.changes.outputs.mcp_catalog == 'true'
     runs-on: ubuntu-latest
@@ -289,6 +300,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Require explicit MCP catalog review label
         env:
