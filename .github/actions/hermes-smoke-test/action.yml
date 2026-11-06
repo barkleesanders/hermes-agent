@@ -36,7 +36,9 @@ runs:
         # ignores its CMD args, so the smoke test was a no-op.
         docker run --rm \
           -v /tmp/hermes-test:/opt/data \
-          "${{ inputs.image }}" --help
+          "${INPUTS_IMAGE}" --help
+      env:
+        INPUTS_IMAGE: ${{ inputs.image }}
 
     - name: hermes dashboard --help
       shell: bash
@@ -47,4 +49,6 @@ runs:
         # installed package.
         docker run --rm \
           -v /tmp/hermes-test:/opt/data \
-          "${{ inputs.image }}" dashboard --help
+          "${INPUTS_IMAGE}" dashboard --help
+      env:
+        INPUTS_IMAGE: ${{ inputs.image }}

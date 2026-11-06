@@ -101,11 +101,15 @@ jobs:
 
       - name: Report status
         run: |
-          echo "Probe status: ${{ steps.probe.outputs.status }}"
-          echo "Detail:       ${{ steps.probe.outputs.detail }}"
-          if [ -n "${{ steps.probe.outputs.summary }}" ]; then
-            echo "Summary:      ${{ steps.probe.outputs.summary }}"
+          echo "Probe status: ${STEPS_PROBE_OUTPUTS_STATUS}"
+          echo "Detail:       ${STEPS_PROBE_OUTPUTS_DETAIL}"
+          if [ -n "${STEPS_PROBE_OUTPUTS_SUMMARY}" ]; then
+            echo "Summary:      ${STEPS_PROBE_OUTPUTS_SUMMARY}"
           fi
+        env:
+          STEPS_PROBE_OUTPUTS_STATUS: ${{ steps.probe.outputs.status }}
+          STEPS_PROBE_OUTPUTS_DETAIL: ${{ steps.probe.outputs.detail }}
+          STEPS_PROBE_OUTPUTS_SUMMARY: ${{ steps.probe.outputs.summary }}
 
       - name: Open issue on degraded / failed probe
         if: steps.probe.outputs.status != 'ok'

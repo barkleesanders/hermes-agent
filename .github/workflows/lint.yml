@@ -24,7 +24,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write # needed to post/update PR comments
 
 concurrency:
   group: lint-${{ github.ref }}
@@ -33,6 +32,9 @@ concurrency:
 jobs:
   lint-diff:
     name: ruff + ty diff
+    permissions:
+      contents: read
+      pull-requests: write # needed to post/update PR comments
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,6 +42,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0 # need full history for merge-base + worktree
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -55,8 +58,8 @@ jobs:
           # For PRs, diff against the merge base with the target branch.
           # For pushes to main, diff against the previous commit on main.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_SHA=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
-            BASE_REF="origin/${{ github.base_ref }}"
+            BASE_SHA=$(git merge-base "origin/${GITHUB_BASE_REF}" HEAD)
+            BASE_REF="origin/${GITHUB_BASE_REF}"
           else
             BASE_SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
             BASE_REF="HEAD~1"
@@ -83,7 +86,7 @@ jobs:
           # SHA is identical to HEAD (e.g. first commit), skip and leave the
           # base reports empty — the diff script handles missing files.
           HEAD_SHA=$(git rev-parse HEAD)
-          BASE_SHA="${{ steps.base.outputs.sha }}"
+          BASE_SHA="${STEPS_BASE_OUTPUTS_SHA}"
           if [ "$BASE_SHA" = "$HEAD_SHA" ]; then
             echo "Base SHA == HEAD SHA, skipping base scan."
             echo '[]' > .lint-reports/base/ruff.json
@@ -101,6 +104,8 @@ jobs:
           fi
           echo "base ruff: $(wc -c < .lint-reports/base/ruff.json) bytes"
           echo "base ty:   $(wc -c < .lint-reports/base/ty.json) bytes"
+        env:
+          STEPS_BASE_OUTPUTS_SHA: ${{ steps.base.outputs.sha }}
 
       - name: Generate diff summary
         run: |
@@ -109,10 +114,13 @@ jobs:
             --head-ruff .lint-reports/head/ruff.json \
             --base-ty   .lint-reports/base/ty.json \
             --head-ty   .lint-reports/head/ty.json \
-            --base-ref  "${{ steps.base.outputs.ref }}" \
-            --head-ref  "${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}" \
+            --base-ref  "${STEPS_BASE_OUTPUTS_REF}" \
+            --head-ref  "${HEAD_REF}" \
             --output    .lint-reports/summary.md
           cat .lint-reports/summary.md >> "$GITHUB_STEP_SUMMARY"
+        env:
+          STEPS_BASE_OUTPUTS_REF: ${{ steps.base.outputs.ref }}
+          HEAD_REF: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
 
       - name: Upload reports as artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -167,6 +175,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
@@ -191,6 +201,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v5
